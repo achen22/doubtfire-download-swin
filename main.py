@@ -1,6 +1,7 @@
-import requests, jsonfile, json
+import requests, jsonfile
 from bs4 import BeautifulSoup
 from getpass import getpass
+from pathlib import Path
 
 SAVEFILE = "savedata.json"
 settings = jsonfile.load(SAVEFILE)
@@ -57,6 +58,24 @@ def get_auth_token(url):
     else: # Unknown status code
       return
 
+def get_unit(projects):
+  while True:
+    print("Units You Study")
+    for i in range(len(projects)):
+      project = projects[i]
+      unit_code = project['unit_code']
+      unit_name = project['unit_name']
+      print(f"[{i+1}] {unit_code} - {unit_name}")
+
+    entered = input("\nSelect a unit to download PDFs and resources, or enter [0] to exit: ")
+    if not entered:
+      return 0
+    elif entered.isdigit():
+      entered = int(entered)
+      if entered <= len(projects):
+        return entered
+    print("Invalid input!\n")
+
 if __name__ == "__main__":
   # check saved host
   if 'host' in settings:
@@ -96,7 +115,40 @@ if __name__ == "__main__":
     
     host = settings['host']
     token = settings['auth_token']
+
     projects = get_auth_request_json(host, "/api/projects", token)
-    projects.sort(key = lambda p: p['project_id'], reverse = True)
-    print(projects)
-    break
+    projects.sort(key = lambda p: p['unit_id'], reverse = True)
+    unit = get_unit(projects)
+    if not unit:
+      break
+    unit_id = projects[unit - 1]['unit_id']
+    unit = get_auth_request_json(host, f"/api/units/{unit_id}", token)
+
+    folder = f"./download/{unit['code']}"
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    with open(folder + "/Tasks.md", "w") as f:
+      f.write(f"# {unit['code']} - {unit['name']}\n")
+
+      tasks = unit['task_definitions']
+      for task in tasks:
+        print(task['abbreviation'])
+        f.write(f"\n## {task['name']}\n")
+        f.write(f"{task['description']}\n")
+        requirements = task['upload_requirements']
+        for r in requirements:
+          f.write(f"- [{r['type']}] {r['name']}\n")
+        if task['has_task_pdf']:
+          url = f"{host}/api/units/{unit_id}/task_definitions/{task['id']}/task_pdf.json"
+          r = requests.get(url, {'auth_token': token})
+          fname = r.headers['Content-Disposition']
+          if fname[:21] == "attachment; filename=":
+            with open(folder + "/" + fname[21:], "wb") as pdf:
+              pdf.write(r.content)
+        if task['has_task_resources']:
+          url = f"{host}/api/units/{unit_id}/task_definitions/{task['id']}/task_resources.json"
+          r = requests.get(url, {'auth_token': token})
+          fname = r.headers['Content-Disposition']
+          if fname[:21] == "attachment; filename=":
+            with open(folder + "/" + fname[21:], "wb") as resources:
+              resources.write(r.content)
+        
