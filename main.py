@@ -1,4 +1,5 @@
-import requests, jsonfile
+from datetime import datetime
+import requests, jsonfile, vobject
 from bs4 import BeautifulSoup
 from getpass import getpass
 from pathlib import Path
@@ -130,6 +131,8 @@ if __name__ == "__main__":
       f.write(f"# {unit['code']} - {unit['name']}\n")
 
       tasks = unit['task_definitions']
+      due_dates = vobject.iCalendar()
+      target_dates = vobject.iCalendar()
       for task in tasks:
         print(task['abbreviation'])
         f.write(f"\n## {task['name']}\n")
@@ -137,6 +140,21 @@ if __name__ == "__main__":
         requirements = task['upload_requirements']
         for r in requirements:
           f.write(f"- [{r['type']}] {r['name']}\n")
+        
+        due_date = due_dates.add("vevent")
+        due_date.add("summary").value = task['name']
+        due_date.add("description").value = task['description']
+        dtformat = "%Y-%m-%dT%H:%M:%S.%fZ" if task['due_date'][-1] == 'Z' else "%Y-%m-%dT%H:%M:%S.%f"
+        dt = datetime.strptime(task['due_date'], dtformat)
+        due_date.add("dtstart").value = dt
+
+        target_date = target_dates.add("vevent")
+        target_date.add("summary").value = task['name']
+        target_date.add("description").value = task['description']
+        dtformat = "%Y-%m-%dT%H:%M:%S.%fZ" if task['target_date'][-1] == 'Z' else "%Y-%m-%dT%H:%M:%S.%f"
+        dt = datetime.strptime(task['target_date'], dtformat)
+        target_date.add("dtstart").value = dt
+
         if task['has_task_pdf']:
           url = f"{host}/api/units/{unit_id}/task_definitions/{task['id']}/task_pdf.json"
           r = requests.get(url, {'auth_token': token})
@@ -144,6 +162,7 @@ if __name__ == "__main__":
           if fname[:21] == "attachment; filename=":
             with open(folder + "/" + fname[21:], "wb") as pdf:
               pdf.write(r.content)
+
         if task['has_task_resources']:
           url = f"{host}/api/units/{unit_id}/task_definitions/{task['id']}/task_resources.json"
           r = requests.get(url, {'auth_token': token})
@@ -151,4 +170,9 @@ if __name__ == "__main__":
           if fname[:21] == "attachment; filename=":
             with open(folder + "/" + fname[21:], "wb") as resources:
               resources.write(r.content)
-        
+
+    with open(folder + "/due_dates.ics", "w") as f:
+      due_dates.serialize(f, 999)
+    
+    with open(folder + "/target_dates.ics", "w") as f:
+      target_dates.serialize(f, 999)
